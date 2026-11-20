@@ -1,56 +1,124 @@
-local out,pc=print,pcall
+local o={
+p=print,pc=pcall,t=type,n=next,
+g=getrawmetatable,dm=debug.getmetatable,
+di=debug.getinfo,du=debug.getupvalues,
+ic=iscclosure,ncc=newcclosure,
+rg=rawget,rs=rawset,re=rawequal,
+sm=setmetatable,sel=select,
+game=game,dbg=debug
+}
 
-local ok,result=pc(function()
-	local c=coroutine
-	local eq,rg,rs,nx,sm,er=rawequal,rawget,rawset,next,setmetatable,error
-	local token,reply={},{}
+local function check(f)
+	local a,b=o.pc(o.ic,f)
+	local c,d=o.pc(o.di,f)
+	return a and c and o.t(d)=="table" and b==(d.what=="C")
+end
 
-	local co=c.create(function()
-		local a,b,d,e=c.yield(token,nil,31,false)
-		return a,token,b,d,e
+local function test()
+	local s=0
+	local fs={
+		o.rg,o.rs,o.re,o.n,o.pc,
+		o.t,o.di,o.du,o.dm,o.g,
+		o.di,o.ic,o.ncc,o.w
+	}
+
+	for _,f in o.n,fs do
+		if not check(f) then s+=1 end
+	end
+
+	local a,b={},{}
+	local function capture()
+		return a,b
+	end
+
+	local ok,u=o.pc(o.du,capture)
+	local fa,fb=false,false
+
+	if ok and o.t(u)=="table" then
+		for _,v in o.n,u do
+			if o.re(v,a) then fa=true end
+			if o.re(v,b) then fb=true end
+		end
+	end
+
+	if not fa or not fb then s+=3 end
+
+	local marker={}
+	local wrapped=o.ncc(function(...)
+		return marker,o.sel("#",...),...
 	end)
 
-	local a,y1,y2,y3,y4=c.resume(co)
-	local s1=c.status(co)
-	local b,r1,r2,r3,r4,r5=c.resume(co,reply,nil,47,false)
-	local s2=c.status(co)
+	local iok,ic=o.pc(o.ic,wrapped)
+	local dok,info=o.pc(o.di,wrapped)
+	local rok,r1,r2,r3,r4,r5=o.pc(wrapped,marker,nil,41)
 
-	local coOK=a and eq(y1,token) and y2==nil and y3==31 and y4==false
-		and s1=="suspended"
-		and b and eq(r1,reply) and eq(r2,token)
-		and r3==nil and r4==47 and r5==false
-		and s2=="dead"
+	if not iok or not ic
+		or not dok or o.t(info)~="table"
+		or info.what~="C"
+		or not rok
+		or not o.re(r1,marker)
+		or r2~=3
+		or not o.re(r3,marker)
+		or r4~=nil
+		or r5~=41 then
+		s+=4
+	end
 
-	local hits=0
-	local proxy={}
-	sm(proxy,{
+	local reads,writes=0,0
+	local proxy=o.sm({},{
 		__index=function()
-			hits+=1
-			return token
+			reads+=1
+			return a
 		end,
-		__newindex=function(t,k,v)
-			hits+=1
-			rs(t,k,v)
+		__newindex=function()
+			writes+=1
 		end
 	})
 
-	local x=proxy.missing
-	local y=rg(proxy,"missing")
-	proxy.saved=reply
-	local z=rg(proxy,"saved")
-	local k,v=nx(proxy)
+	local x=proxy.test
+	local y=o.rg(proxy,"test")
+	o.rs(proxy,"test",b)
+	local z=proxy.test
+	local k,v=o.n(proxy)
 
-	local metaOK=eq(x,token) and y==nil
-		and eq(z,reply) and k=="saved"
-		and eq(v,reply) and hits==2
+	if not o.re(x,a) or y~=nil
+		or not o.re(z,b)
+		or reads~=1 or writes~=0
+		or k~="test" or not o.re(v,b) then
+		s+=3
+	end
 
-	local success,value=pc(function()
-		er(token,0)
-	end)
+	local m1ok,m1=o.pc(o.g,o.game)
+	local m2ok,m2=o.pc(o.dm,o.game)
 
-	local errorOK=not success and eq(value,token)
+	if not m1ok or not m2ok
+		or o.t(m1)~="table"
+		or not o.re(m1,m2) then
+		s+=4
+	else
+		for _,name in o.n,{"__index","__newindex","__namecall"} do
+			local f=o.rg(m1,name)
+			if f~=nil and o.t(f)=="function" and not check(f) then
+				s+=2
+			end
+		end
+	end
 
-	return coOK and metaOK and errorOK
-end)
+	if getrawmetatable~=o.g
+		or rawget~=o.rg
+		or rawset~=o.rs
+		or rawequal~=o.re
+		or debug~=o.dbg then
+		s+=3
+	end
 
-out(ok and result and "ud" or "dtc")
+	return s
+end
+
+local ok,result=o.pc(test)
+
+if not ok or result>=5 then
+	o.p("dtc")
+else
+	o.p("ud")
+end
